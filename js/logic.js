@@ -13,7 +13,7 @@
   'use strict';
   /* 판(版) — index.html 의 ?v= · app.js 의 APP_VERSION 과 같아야 합니다(scripts/bump-version.mjs 로 함께 올림).
      브라우저가 옛 logic.js 와 새 app.js 를 섞어 쓰면 app.js 가 이 값을 보고 계산을 멈춥니다. */
-  var VERSION = '2026-10-27.2';
+  var VERSION = '2026-11-08.1';
 
   var SCHEMA_VERSION = 1;
   var REPAIR = ['외부', '자체'];
@@ -33,7 +33,11 @@
     if (v instanceof Date) {
       if (isNaN(v.getTime())) return '';
       // SheetJS 는 날짜를 그 지역 자정으로 줍니다. 지역 날짜로 읽습니다.
-      return ymd(v.getFullYear(), v.getMonth() + 1, v.getDate());
+      // 4차(11-08): 그런데 한국 시간에서는 엑셀 날짜가 자정보다 52초 이르게 옵니다(서울 옛 표준시 차이 — 실제 파일의 2026-10-16 이 10-15 23:59:08).
+      // 그대로 읽으면 하루 앞 날짜가 되므로, 자정 5분 앞은 다음 날로 봅니다.
+      var t0 = v;
+      if (v.getHours() === 23 && v.getMinutes() >= 55) t0 = new Date(v.getTime() + 5 * 60000);
+      return ymd(t0.getFullYear(), t0.getMonth() + 1, t0.getDate());
     }
     if (typeof v === 'number' && isFinite(v)) {
       if (v > 20000 && v < 80000) { // 엑셀 일련번호
@@ -200,10 +204,15 @@
     }
     return parts.map(function (p) { return str(p).replace(/^(\d{1,2}[.)](?!\d)|[①-⑳]|[-*•·])\s*/, ''); }).filter(Boolean);
   }
+  /* 4차(11-08): 「1/2마력」 「S/W」 처럼 영문·숫자 사이 「/」 와 괄호 안(「(수동1/6HP)」)은 나누지 않습니다 — 부품 이름 한 개 */
   function splitList(v) {
     if (Array.isArray(v)) return v.map(str).filter(Boolean);
-    return str(v).split(/\s*(?:[,/;·\n]|\s및\s)\s*/).map(str).filter(Boolean);
+    var s = str(v).replace(/[(（][^)）]*[)）]/g, function (m) { return m.replace(/[,/;·]/g, function (c) { return '\u0001' + ',/;·'.indexOf(c); }); })
+      .replace(/([A-Za-z0-9])\/(?=[A-Za-z0-9])/g, '$1\u00011');
+    return s.split(/\s*(?:[,/;·\n]|\s및\s)\s*/).map(function (x) { return str(x.replace(/\u0001(\d)/g, function (m, i) { return ',/;·'.charAt(Number(i)); })); }).filter(Boolean);
   }
+  /* 교체 부품 칸의 「없음」 「-」 는 부품이 아닙니다(양식에 「없으면 없음」 이라고 적게 되어 있음) — 부품 집계에서 뺍니다 */
+  function partNames(v) { return splitList(v).filter(function (x) { return !MISSING_RE.test(x) && !/^(재고\s?)?없음$/.test(x); }); }
 
   /* ── 3. 증상 태그 ─────────────────────────────────────────────
      증상 글에서 자동으로 뽑고, 사용자가 켜고 끌 수 있습니다. 같은 태그가 있으면 유사도에 더해집니다. */
@@ -331,7 +340,7 @@
     }
     return UNKNOWN_CAUSE;
   }
-  function isUnknownCause(name) { return !str(name) || /미상|모름|불명|확인\s?중/.test(str(name)); }
+  function isUnknownCause(name) { return !str(name) || /미상|모름|불명|미확인|확인\s?(중|불가|안\s?됨)/.test(str(name)); }
   /* 부위 분류 — 원인 묶음에 붙은 부위(전기·제어 · 센서 · 히터 · 냉각 · 유압 · 모터·구동 · 펌프·배관 · 스크류·바렐 · 금형·노즐 · 구조·체결 · 운전 조건) */
   function partOf(causeName) { var g = causeGroupOf(canonCause(causeName)); return g ? g.part : ''; }
   /* 설비 이름 → 설비 종류(가족). 「압출기 1호기」 「압출 1호기」 「압출기」 를 한 종류로 봅니다. 순서 중요(냉각기 → 압출기 …) */
@@ -643,7 +652,7 @@
     if (tools.indexOf('보안경') < 0) tools.push('보안경');
     var ext = list.filter(function (c) { return c.repairBy === '외부'; }), self = list.filter(function (c) { return c.repairBy === '자체'; });
     var extKnown = ext.filter(hasSpent), extCost = extKnown.reduce(function (s, c) { return s + spent(c); }, 0);
-    var extParts = countList(ext.reduce(function (a, c) { return a.concat(splitList(c.parts)); }, []));
+    var extParts = countList(ext.reduce(function (a, c) { return a.concat(partNames(c.parts)); }, []));
     var callExpert = CALL_EXPERT.common.slice();
     cats.forEach(function (k) { if (CALL_EXPERT[k]) callExpert.push(CALL_EXPERT[k]); });
     if (ext.length) callExpert.push('과거 이 원인 ' + list.length + '건 중 외부 수리 ' + ext.length + '건' +
@@ -659,7 +668,7 @@
       symptoms: uniq(symptoms).slice(0, 3),
       steps: steps,
       actions: countList(actions).map(function (x) { return { text: x.name, count: x.count, kind: stepKind(x.name) }; }).slice(0, 8),
-      parts: countList(list.reduce(function (a, c) { return a.concat(splitList(c.parts)); }, [])),
+      parts: countList(list.reduce(function (a, c) { return a.concat(partNames(c.parts)); }, [])),
       tools: uniq(tools),
       safety: safety, callExpert: callExpert,
       extCount: ext.length, selfCount: self.length, extCost: extCost, avgExtCost: extKnown.length ? Math.round(extCost / extKnown.length) : null,
@@ -1277,7 +1286,7 @@
     SAFETY: SAFETY, CALL_EXPERT: CALL_EXPERT, LEVEL_TEXT: LEVEL_TEXT, EXPORT_HEAD: EXPORT_HEAD, GUIDE_EDIT_FIELDS: GUIDE_EDIT_FIELDS,
     PHOTO_MAX: PHOTO_MAX, THUMB_MAX: THUMB_MAX, PHOTO_LIMIT: PHOTO_LIMIT,
     str: str, squash: squash, toISO: toISO, toNum: toNum, toHours: toHours, monthOf: monthOf, round: round, fmtWon: fmtWon, fmtPct: fmtPct, uniq: uniq,
-    normRepairBy: normRepairBy, splitSteps: splitSteps, splitList: splitList, tagList: tagList, extractTags: extractTags,
+    normRepairBy: normRepairBy, splitSteps: splitSteps, splitList: splitList, partNames: partNames, tagList: tagList, extractTags: extractTags,
     canonCause: canonCause, causeKey: causeKey, causeList: causeList, hazardCats: hazardCats,
     stem: stem, tokens: tokens, buildIndex: buildIndex, similar: similar, cleanOpts: cleanOpts, diagnose: diagnose,
     stepKind: stepKind, stepCore: stepCore, stopIndex: stopIndex, firstCheck: firstCheck, guideDraft: guideDraft, guideCard: guideCard, guideToText: guideToText, linesOf: linesOf,

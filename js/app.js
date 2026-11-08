@@ -3,10 +3,10 @@
    AI 연결은 js/ai-endpoint.js·ai-panel.js(data09-25 에서 옮김). */
 (function () {
   'use strict';
-  var L = window.FixLogic, S = window.FixStore, P = window.FixPhotos, C = window.FixCharts, AIP = window.AIPanel, SMP = window.FixSample, XI = window.FixXlsxImages;
+  var FF = window.FixFieldForm, L = window.FixLogic, S = window.FixStore, P = window.FixPhotos, C = window.FixCharts, AIP = window.AIPanel, SMP = window.FixSample, XI = window.FixXlsxImages;
   /* 판 맞추기 — 브라우저가 옛 logic.js 와 새 app.js 를 섞어 쓰면(Pages 캐시) 버튼과 결과가 어긋날 수 있어, 섞였으면 계산하지 않고 새로고침을 안내합니다.
      판은 scripts/bump-version.mjs 로 index.html(?v=) · logic.js 와 함께 올립니다. */
-  var APP_VERSION = '2026-10-27.2';
+  var APP_VERSION = '2026-11-08.1';
   if (!L || L.VERSION !== APP_VERSION) {
     var m0 = document.getElementById('main') || document.body;
     m0.innerHTML = '<section class="card" id="versionMismatch"><h1>새 판이 나왔습니다 — 새로고침(Ctrl+F5)해 주세요</h1><p class="alert warn">이 브라우저가 옛 파일과 새 파일을 섞어 불러왔습니다(js/logic.js ' +
@@ -21,6 +21,7 @@
     diag: { equipment: '', scope: 'equip', text: '', tags: [], tagTouched: {}, result: null, manual: '', manualFor: null, answer: '' },
     cases: { equipment: '', cause: '', by: '', q: '', from: '', to: '' },
     imp: null,
+    field: { fields: null, issues: [], img: '', shot: null, fileName: '', msg: '', msgKind: 'note', busy: false, attach: true, team: '' },
     cost: { from: '', to: '', dedupe: true }
   };
 
@@ -229,6 +230,7 @@
     { id: 'guide', no: '③', t: '자체 정비 가이드북', s: '원인별 카드 · 인쇄' },
     { id: 'cost', no: '④', t: '비용 현황', s: '외부 수리 비용 · 자체 처리 비율' },
     { id: 'import', no: '', t: '내역서 가져오기', s: '수리이력·내역서 엑셀 → 사례' },
+    { id: 'field', no: '', t: '현장 고장 기록지', s: '빈 기록지 인쇄 · 채운 기록지 사진 → 사례' },
     { id: 'check', no: '', t: '자료 점검', s: '칸별 채움 · 더 채울 칸 · 권장 양식' },
     { id: 'settings', no: '', t: '설정', s: '설비 · AI 연결 · 백업' },
     { id: 'next', no: '', t: '다음 단계', s: '보내 주실 자료' }
@@ -451,7 +453,7 @@
   }
 
   /* ── 사례 추가·고치기 ───────────────────────── */
-  function editCase(c, preset) {
+  function editCase(c, preset, onSaved) {
     var isNew = !c;
     var src = c || L.cleanCase(Object.assign({ date: today(), source: '직접 입력' }, preset || {}));
     var inputs = {
@@ -491,7 +493,8 @@
     // 사진 — 창 안에서는 work 만 바꾸고 「저장」 때 사례에 붙입니다. 저장하지 않고 닫으면 이번에 넣은 사진을 지웁니다.
     var orig = (src.photos || []).map(function (p) { return Object.assign({}, p); });
     var work = orig.map(function (p) { return Object.assign({}, p); });
-    var added = [], saved = false;
+    // 4차: 새 사례에 미리 붙여 온 사진(현장 기록지 사진)은 이번에 넣은 사진으로 셉니다 — 저장하지 않고 닫으면 지웁니다
+    var added = isNew ? orig.map(function (p) { return p.id; }) : [], saved = false;
     var photoBox = h('div', { class: 'photo-edit' }), photoMsg = h('p', { class: 'note', role: 'status', 'aria-live': 'polite' }), storeBox = h('div');
     function addPhotoFiles(fileList) {
       var files = Array.prototype.slice.call(fileList || []).filter(function (f) { return /^image\//.test(f.type) || /\.(jpe?g|png|webp|gif|bmp|heic|heif)$/i.test(f.name); });
@@ -607,6 +610,7 @@
         dropPhotos(orig.filter(function (p) { return !keep[p.id]; }).map(function (p) { return p.id; }));
         work.forEach(function (p) { P.get(p.id).then(function (rec) { if (rec && (rec.memo !== L.str(p.memo) || rec.caseId !== nc.id)) { rec.memo = L.str(p.memo); rec.caseId = nc.id; P.put(rec); } }); });
         toast((isNew ? '등록했습니다' : '고쳤습니다') + (work.length ? '(사진 ' + work.length + '장)' : ''));
+        if (onSaved) onSaved(nc);
         render();
       } }, '저장')], true);
   }
@@ -1250,6 +1254,169 @@
     { k: 'top', t: '자주 나는 고장 상위 3~5가지', d: '예시에 넣은 히터 단선·센서·유압 누유·모터 과부하·금형 막힘이 실제와 맞는지, 다른 것이 있는지.' },
     { k: 'safety', t: '팀에서 직접 해도 되는 작업의 선', d: '전기·유압·고온 작업 가운데 사내 규정상 팀원이 할 수 있는 것과 반드시 외부를 부르는 것.' }
   ];
+  /* ── 현장 고장 기록지 (4차, 2026-11-08) ──────────────────
+     수강생 양식(설비 고장/수리 기록지)을 인쇄하고, 손으로 채운 기록지 사진을 본인 OpenAI 키로 읽어 → 칸별로 확인 · 고친 뒤 → 「정비 사례 등록」 창으로.
+     판정(지시문 · 답 읽기 · 검사 · 사례 변환)은 js/fieldform.js. 키는 「이 브라우저에 기억」 을 고른 때만 localStorage, 아니면 이 창에서만 */
+  var VISION_KEY = 'data10-06.vision', visionSession = '';
+  function visionLoad() {
+    var o = { model: FF.DEFAULT_MODEL, key: '', remember: false };
+    try { var j = JSON.parse(localStorage.getItem(VISION_KEY) || 'null'); if (j) { o.model = L.str(j.model) || o.model; o.key = L.str(j.key); o.remember = !!j.remember; } } catch (e) { /* 막힌 저장소 */ }
+    if (!o.key && visionSession) o.key = visionSession;
+    return o;
+  }
+  function visionSave(o) {
+    visionSession = L.str(o.key);
+    try { localStorage.setItem(VISION_KEY, JSON.stringify({ model: L.str(o.model) || FF.DEFAULT_MODEL, key: o.remember ? L.str(o.key) : '', remember: !!o.remember })); } catch (e) { /* 무시 */ }
+  }
+  function visionForget() { visionSession = ''; try { localStorage.removeItem(VISION_KEY); } catch (e) { /* 무시 */ } }
+  function fieldSheet(team) {
+    var T = FF.LAYOUT, tot = T.cols.reduce(function (s, x) { return s + x; }, 0);
+    var tb = h('tbody');
+    tb.appendChild(h('tr', { class: 'fs-title', style: 'height:44pt' }, h('th', { colspan: '4' }, FF.title(team))));
+    T.rows.forEach(function (r) {
+      var st = 'height:' + r.h + 'pt';
+      if (r.gap) { tb.appendChild(h('tr', { class: 'fs-gap', style: st }, h('td', { colspan: '4' }))); return; }
+      if (r.one) {
+        var f = FF.FIELDS.filter(function (x) { return x.id === r.one; })[0];
+        tb.appendChild(h('tr', { style: st }, h('th', { scope: 'row' }, f.label, f.hint ? h('small', null, '(' + f.hint + ')') : null), h('td', { colspan: '3' })));
+        return;
+      }
+      tb.appendChild(h('tr', { style: st }, h('th', { scope: 'row' }, FF.LABEL[r.pair[0]]), h('td'), h('th', { scope: 'row' }, FF.LABEL[r.pair[1]]), h('td')));
+    });
+    return h('table', { class: 'field-sheet' }, h('colgroup', null, T.cols.map(function (w) { return h('col', { style: 'width:' + (w / tot * 100).toFixed(1) + '%' }); })), tb);
+  }
+  function printField() {
+    document.body.classList.add('print-field');
+    setTimeout(function () { window.print(); }, 50);
+  }
+  window.addEventListener('afterprint', function () { document.body.classList.remove('print-field'); });
+  function viewField() {
+    var st = ui.field, wrap = h('div');
+    add(wrap, pageHead('현장', '현장 고장 기록지', '현장 작업자가 설비 고장 때 종이에 적는 「설비 고장/수리 기록지」 입니다. 빈 기록지를 인쇄해 현장에 두고, 채운 기록지를 사진으로 찍어 올리면 칸별로 읽어 정비 사례로 넣습니다. 사진은 이 브라우저 안에서만 다루고, AI 로 읽을 때만 그 서비스로 보냅니다.'));
+
+    // ① 빈 기록지 인쇄
+    var teamIn = h('input', { value: st.team, placeholder: '예: 생산팀 (비우면 「설비 고장/수리 기록지」)', 'aria-label': '기록지 제목 앞에 붙일 팀 이름', maxlength: '30' });
+    var sheetBox = h('div', { class: 'field-print-wrap' }, fieldSheet(st.team));
+    teamIn.addEventListener('input', function () { st.team = teamIn.value; sheetBox.textContent = ''; sheetBox.appendChild(fieldSheet(st.team)); });
+    add(wrap, h('section', { class: 'card' },
+      h('h2', null, '1. 빈 기록지 인쇄'),
+      h('p', { class: 'note no-print' }, '수강생이 만든 양식(작성일자 · 작성자 · 설비명 · 발생 일시 · 고장 증상 · 원인/점검 결과 · 조치 사항 · 교체 부품 · 수리 구분 · 수리 업체명 · 멈춘 시간 · 처리 상태 · 사진 첨부 · 비고)과 같은 칸 · 같은 높이입니다. A4 한 장으로 인쇄되며, 인쇄 창에서 「PDF 로 저장」 을 고르면 PDF 로 받습니다.'),
+      h('div', { class: 'filters no-print' }, fld('제목 앞 팀 이름(선택)', teamIn),
+        h('div', { class: 'btn-row ex-label' }, h('button', { type: 'button', class: 'btn btn-primary', onclick: printField }, '빈 기록지 인쇄 · PDF'))),
+      sheetBox));
+
+    // ② 채운 기록지 사진 → 읽기
+    var vc = visionLoad();
+    var modelIn = h('input', { value: vc.model, autocomplete: 'off', spellcheck: 'false', 'aria-label': 'OpenAI 모델 이름' });
+    var keyIn = h('input', { type: 'password', value: vc.key, autocomplete: 'off', placeholder: 'sk-… (본인 키)', 'aria-label': 'OpenAI API 키' });
+    var remember = h('input', { type: 'checkbox' }); remember.checked = vc.remember;
+    var agree = h('input', { type: 'checkbox' });
+    var runBtn = h('button', { type: 'button', class: 'btn btn-primary' }, st.busy ? '읽는 중…' : 'AI 로 읽기');
+    function syncRun() { runBtn.disabled = st.busy || !(st.img && agree.checked && L.str(keyIn.value)); }
+    [keyIn, agree].forEach(function (x) { x.addEventListener('input', syncRun); x.addEventListener('change', syncRun); });
+    runBtn.addEventListener('click', function () {
+      var cfg = { model: modelIn.value, key: keyIn.value, remember: remember.checked };
+      visionSave(cfg);
+      st.busy = true; st.msg = 'AI 가 기록지를 읽는 중입니다… (10~40초)'; st.msgKind = 'note'; render();
+      FF.read(cfg.key, st.img, { model: cfg.model }).then(function (r) {
+        st.busy = false;
+        if (r.error) { st.msg = r.error + ' — 「손으로 입력」 으로 같은 칸을 채울 수 있습니다.'; st.msgKind = 'warn'; render(); return; }
+        useFields(r.fields, '읽었습니다. 아래 3 에서 원본 사진과 칸마다 대조해 주세요.');
+      }, function (e) {
+        st.busy = false; st.msg = 'AI 읽기가 실패했습니다: ' + (e && e.message || e) + ' — 키 · 모델 이름을 확인하거나, 「손으로 입력」 으로 같은 칸을 채울 수 있습니다.'; st.msgKind = 'warn'; render();
+      });
+    });
+    var pick = h('input', { type: 'file', accept: 'image/*', 'aria-label': '기록지 사진 고르기', onchange: function (e) { takePhoto(e.target.files[0]); e.target.value = ''; } });
+    var cam = h('input', { type: 'file', accept: 'image/*', capture: 'environment', 'aria-label': '카메라로 찍기', onchange: function (e) { takePhoto(e.target.files[0]); e.target.value = ''; } });
+    syncRun();
+    add(wrap, h('section', { class: 'card no-print' },
+      h('h2', null, '2. 채운 기록지 사진 올리기'),
+      h('div', { class: 'btn-row' }, h('label', { class: 'btn file-btn' }, '사진 고르기', pick), h('label', { class: 'btn file-btn' }, '카메라로 찍기', cam),
+        h('button', { type: 'button', class: 'btn', onclick: function () { useFields(FF.blank(), '빈 칸을 열었습니다. 기록지를 보며 채워 주세요.'); } }, '손으로 입력(키 없이)'),
+        h('button', { type: 'button', class: 'btn', onclick: function () { useFields(FF.parseReply(FF.sampleReply()).fields, '예시 답(가상 기록지)을 넣었습니다. 실제 AI 를 부르지 않았습니다.'); } }, '예시 답으로 해보기(가상)'),
+        st.img || st.fields ? h('button', { type: 'button', class: 'btn', onclick: function () { resetField(); render(); } }, '비우기') : null),
+      st.img ? h('figure', { class: 'field-shot' }, h('img', { src: st.img, alt: '올린 기록지 사진' }), h('figcaption', { class: 'note' }, (st.fileName || '기록지 사진') + ' · 긴 변 ' + L.PHOTO_MAX + 'px 로 줄인 사본')) : h('p', { class: 'note' }, '기록지 한 장을 반듯하게, 글씨가 잘 보이게 찍어 주세요(그림자 · 기울기가 적을수록 잘 읽습니다).'),
+      h('h3', null, 'AI 로 읽기 (선택 · 본인 OpenAI 키)'),
+      h('div', { class: 'form-grid' }, fld('API 키', keyIn, '키는 이 도구 · 서버에 저장하지 않습니다. 아래를 켜면 이 브라우저에만 기억합니다'), fld('모델', modelIn, '사진을 읽는 모델(기본 ' + FF.DEFAULT_MODEL + ')'),
+        h('div', { class: 'field' }, h('span', null, '키 기억'), h('label', { class: 'opt' }, remember, ' 이 브라우저에 기억'), h('button', { type: 'button', class: 'linklike', onclick: function () { visionForget(); keyIn.value = ''; remember.checked = false; syncRun(); toast('키를 지웠습니다'); } }, '키 지우기'))),
+      h('div', { class: 'alert warn' }, h('b', null, '보내기 전에 확인하세요. '), '올린 기록지 사진이 OpenAI 로 전송됩니다. 작성자 이름 등 개인정보가 보이면 가린 뒤 찍거나, 회사 규정상 외부 AI 에 보내도 되는 자료인지 먼저 확인해 주세요.',
+        h('label', { class: 'opt block' }, agree, ' 외부로 보내도 되는 자료임을 확인했습니다')),
+      h('div', { class: 'btn-row' }, runBtn),
+      st.msg ? h('p', { class: 'alert ' + (st.msgKind === 'warn' ? 'warn' : st.msgKind === 'ok' ? 'ok' : 'info'), role: 'status' }, st.msg) : null));
+
+    // ③ 확인 · 고치기 → 사례로
+    if (st.fields) add(wrap, fieldConfirm());
+    return wrap;
+  }
+  function resetField() { var t = ui.field.team; ui.field = { fields: null, issues: [], img: '', shot: null, fileName: '', msg: '', msgKind: 'note', busy: false, attach: true, team: t }; }
+  function takePhoto(f) {
+    if (!f) return;
+    if (!/^image\//.test(f.type) && !/\.(jpe?g|png|webp|gif|bmp|heic|heif)$/i.test(f.name)) { toast('사진 파일(JPG · PNG)을 올려 주세요', true); return; }
+    ui.field.msg = '사진을 줄이는 중입니다…'; ui.field.msgKind = 'note'; render();
+    P.shrink(f).then(function (x) {
+      return P.blobToB64(x.blob).then(function (b64) {
+        ui.field.shot = x; ui.field.img = 'data:image/jpeg;base64,' + b64; ui.field.fileName = f.name || '';
+        ui.field.msg = '사진을 올렸습니다. AI 로 읽거나, 「손으로 입력」 으로 사진을 보며 채워 주세요.'; ui.field.msgKind = 'ok'; render();
+      });
+    }).catch(function (e) { ui.field.msg = e && e.message || '사진을 읽지 못했습니다'; ui.field.msgKind = 'warn'; render(); });
+  }
+  function useFields(fields, msg) {
+    ui.field.fields = fields; ui.field.issues = FF.validate(fields); ui.field.msg = msg; ui.field.msgKind = 'ok'; render();
+    setTimeout(function () { var el = document.getElementById('fieldConfirm'); if (el) el.scrollIntoView({ block: 'start', behavior: 'smooth' }); }, 30);
+  }
+  function fieldConfirm() {
+    var st = ui.field, f = st.fields;
+    var issueBox = h('div', { 'aria-live': 'polite' });
+    function drawIssues() {
+      st.issues = FF.validate(f); issueBox.textContent = '';
+      if (!st.issues.length) { issueBox.appendChild(h('p', { class: 'alert ok' }, '확인할 것이 없습니다. 원본과 한 번 더 대조한 뒤 등록해 주세요.')); return; }
+      issueBox.appendChild(h('div', { class: 'alert warn' }, h('b', null, '확인할 것 ' + st.issues.length + '가지'),
+        h('ul', null, st.issues.map(function (x) { return h('li', null, (x.label ? x.label + ' — ' : '') + x.what); }))));
+    }
+    function control(fd) {
+      var v = f[fd.id] || '', el;
+      if (fd.id === 'repairBy' || fd.id === 'status') {
+        var opts = fd.id === 'repairBy' ? [['', '고르기'], ['자체', '자체'], ['외부', '외부']] : [['', '고르기'], ['완료', '완료'], ['진행 중', '진행 중']];
+        if (v && !opts.some(function (o) { return o[0] === v; })) opts.push([v, v + '(읽은 값)']);
+        el = sel(opts, v);
+      } else if (fd.long) { el = h('textarea', { rows: fd.id === 'steps' ? '6' : '3' }); el.value = v; }
+      else el = h('input', { value: v, autocomplete: 'off', placeholder: fd.kind === 'date' ? '예: 2026-10-29' : '' });
+      el.addEventListener(el.tagName === 'SELECT' ? 'change' : 'input', function () { f[fd.id] = el.value; drawIssues(); });
+      var bad = (st.issues || []).some(function (x) { return x.id === fd.id; });
+      var raw = f.raw && f.raw[fd.id] && f.raw[fd.id] !== v ? 'AI 가 읽은 그대로: ' + f.raw[fd.id] : null;
+      return fld(fd.label + (fd.need ? ' *' : ''), el, raw || fd.hint || null, (fd.long ? 'span-all' : '') + (bad ? ' field-bad' : ''));
+    }
+    var timeIn = h('input', { value: f.occurredTime || '', placeholder: '예: 14:20', autocomplete: 'off' });
+    timeIn.addEventListener('input', function () { f.occurredTime = timeIn.value; });
+    var attach = h('input', { type: 'checkbox' }); attach.checked = st.attach && !!st.shot; attach.disabled = !st.shot;
+    attach.addEventListener('change', function () { st.attach = attach.checked; });
+    var grid = h('div', { class: 'form-grid' });
+    FF.FIELDS.forEach(function (fd) { grid.appendChild(control(fd)); if (fd.id === 'occurredAt') grid.appendChild(fld('발생 시각(선택)', timeIn, '비고에 「발생 14:20」 으로 남깁니다')); });
+    drawIssues();
+    var go = h('button', { type: 'button', class: 'btn btn-primary', onclick: function () {
+      var stop = FF.validate(f).filter(function (x) { return x.stop; });
+      if (stop.length) { toast(stop[0].what, true); return; }
+      var photos = [], ready = Promise.resolve();
+      if (st.attach && st.shot) {
+        var id = P.newId(), x = st.shot;
+        pendingPhotos[id] = true;
+        ready = P.put({ id: id, caseId: '', name: st.fileName || '현장 기록지.jpg', w: x.w, h: x.h, bytes: x.bytes, memo: '현장 기록지', at: Date.now(), blob: x.blob, thumb: x.thumb })
+          .then(function () { photos.push({ id: id, name: st.fileName || '현장 기록지.jpg', w: x.w, h: x.h, bytes: x.bytes, memo: '현장 기록지' }); });
+      }
+      ready.then(function () {
+        editCase(null, FF.toCase(f, { photos: photos, source: st.shot ? '현장 기록지(사진)' : '현장 기록지(손 입력)' }), function () { resetField(); });
+      }, function () { toast('사진을 저장하지 못해 사진 없이 엽니다', true); editCase(null, FF.toCase(f, {}), function () { resetField(); }); });
+    } }, '정비 사례 등록 창 열기');
+    return h('section', { class: 'card no-print', id: 'fieldConfirm' },
+      h('h2', null, '3. 읽은 값 확인 · 고치기'),
+      h('p', { class: 'note' }, '원본 기록지와 칸마다 대조해 틀린 곳을 고쳐 주세요. 「정비 사례 등록 창 열기」 를 누르면 지금 값이 채워진 등록 창이 열리고, 거기서 저장해야 사례가 됩니다. 원인이 비어 있으면 증상 · 조치에서 짐작해 「짐작」 으로 표시합니다. 비용은 기록지에 없으니 등록 창에서 적어 주세요.'),
+      issueBox,
+      st.img ? h('details', { class: 'field-shot-mini' }, h('summary', null, '원본 사진 보기'), h('img', { src: st.img, alt: '올린 기록지 사진' })) : null,
+      grid,
+      h('label', { class: 'opt block' }, attach, ' 기록지 사진도 이 사례의 사진으로 붙이기' + (st.shot ? '' : ' (올린 사진 없음)')),
+      h('div', { class: 'btn-row' }, go));
+  }
+
   function viewNext() {
     var wrap = h('div');
     db.nextChecks = db.nextChecks || {};
@@ -1271,7 +1438,7 @@
   }
 
   /* ── 그리기 ─────────────────────────────── */
-  var VIEWS = { diagnose: viewDiagnose, cases: viewCases, import: viewImport, check: viewCheck, guide: viewGuide, cost: viewCost, settings: viewSettings, next: viewNext };
+  var VIEWS = { diagnose: viewDiagnose, cases: viewCases, import: viewImport, field: viewField, check: viewCheck, guide: viewGuide, cost: viewCost, settings: viewSettings, next: viewNext };
   var lastRoute = '';
   function render() {
     var r = route();

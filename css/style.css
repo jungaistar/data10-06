@@ -408,3 +408,25 @@ table.list.sims td:nth-child(5), table.list.cases td:nth-child(4) { min-width: 2
 .past-actions h4 { margin: 0 0 4px; font-size: .95rem; }
 .check-table td { vertical-align: top; }
 .linklike { word-break: keep-all; overflow-wrap: anywhere; text-align: left; }
+
+/* 4차 — 현장 고장 기록지(인쇄 · 사진 읽기 확인) */
+.alert.ok { background: var(--ok-soft); color: #1d5a2e; }
+.field-print-wrap { overflow-x: auto; margin-top: 12px; }
+.field-sheet { width: 100%; min-width: 560px; max-width: 760px; border-collapse: collapse; table-layout: fixed; background: #fff; color: #111; }
+.field-sheet th, .field-sheet td { border: 1px solid #333; padding: 4px 8px; vertical-align: middle; word-break: keep-all; overflow-wrap: break-word; }
+.field-sheet th { background: #f2f4f7; text-align: left; font-weight: 700; font-size: .92rem; }
+.field-sheet th small { display: block; font-weight: 400; font-size: .78rem; color: #444; }
+.field-sheet .fs-title th { background: #fff; text-align: center; font-size: 1.25rem; letter-spacing: .02em; }
+.field-sheet .fs-gap td { border-left: 0; border-right: 0; }
+.field-shot { margin: 12px 0; max-width: 420px; }
+.field-shot img, .field-shot-mini img { display: block; max-width: 100%; height: auto; border: 1px solid var(--line); border-radius: 8px; }
+.field-shot-mini { margin: 8px 0 12px; }
+.field-shot-mini img { max-width: min(560px, 100%); margin-top: 8px; }
+.field-bad textarea, .field-bad input, .field-bad select { border-color: var(--danger); }
+@media print {
+  @page { size: A4; margin: 12mm; }
+  body.print-field .main > div > :not(.card:first-of-type) { display: none !important; }
+  body.print-field .page-head, body.print-field .card:first-of-type > :not(.field-print-wrap) { display: none !important; }
+  body.print-field .field-print-wrap { overflow: visible; margin: 0; }
+  body.print-field .field-sheet { min-width: 0; max-width: none; font-size: 11pt; }
+}

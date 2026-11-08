@@ -700,6 +700,118 @@ test('4차 찾는 범위 — 설비를 고르면 이 설비만 · 같은 종류�
   assert.ok(L.diagnose(cases, q('equip'), null, types).causes.every(c => c.cause !== L.canonCause('센서 불량')), '진단 원인에도 다른 설비 원인이 안 섞임');
 });
 
+console.log('13. 4차 — 권장 양식 정리본(10-29) 점검에서 나온 것 + 현장 고장 기록지(사진 → AI 읽기 → 사례)');
+const FF = require('../js/fieldform.js');
+test('엑셀 날짜가 자정보다 몇십 초 이르게 와도 그날로(한국 시간 52초 차이 — 10-16 이 10-15 로 읽히던 것)', () => {
+  assert.equal(L.toISO(new Date(2026, 9, 15, 23, 59, 8)), '2026-10-16', '23:59:08 → 다음 날');
+  assert.equal(L.toISO(new Date(2026, 9, 15, 0, 0, 0)), '2026-10-15');
+  assert.equal(L.toISO(new Date(2026, 9, 15, 23, 30, 0)), '2026-10-15', '자정 5분 앞이 아니면 그날');
+  const ws = XLSX.utils.aoa_to_sheet([['일자', '설비명', '증상'], [46311, '설비 A', '가상 증상']]);
+  ws.A2.z = 'yyyy-mm-dd';
+  const wb = XLSX.read(XLSX.write({ SheetNames: ['s'], Sheets: { s: ws } }, { bookType: 'xlsx', type: 'array' }), { type: 'array', cellDates: true });
+  const aoa = XLSX.utils.sheet_to_json(wb.Sheets.s, { header: 1, raw: true, defval: null });
+  assert.equal(L.toISO(aoa[1][0]), '2026-10-16', '엑셀 일련번호 46311 = 2026-10-16 (cellDates 로 읽어도)');
+});
+test('교체 부품 — 「1/2마력」 「S/W」 「(수동1/6HP)」 는 한 부품, 「롤러, 베어링」 「롤러/베어링」 은 둘', () => {
+  assert.deepEqual(L.splitList('냉각기 순환펌프(리테나 교체) 1/2마력'), ['냉각기 순환펌프(리테나 교체) 1/2마력']);
+  assert.deepEqual(L.splitList('RPM 미터 근접 S/W'), ['RPM 미터 근접 S/W']);
+  assert.deepEqual(L.splitList('수중펌프 XX-100 (수동1/6HP)'), ['수중펌프 XX-100 (수동1/6HP)']);
+  assert.deepEqual(L.splitList('롤러, 베어링 6개'), ['롤러', '베어링 6개']);
+  assert.deepEqual(L.splitList('롤러/베어링'), ['롤러', '베어링']);
+  assert.deepEqual(L.splitList('히터 밴드, 오링 / 유압유 20L'), ['히터 밴드', '오링', '유압유 20L']);
+});
+test('원인 칸 「원인미확인」 은 원인이 아님(미상) · 가이드 「자주 바꾼 부품」 에 「없음」 이 안 나옴', () => {
+  assert.ok(L.isUnknownCause('원인미확인')); assert.ok(L.isUnknownCause('원인 확인 불가')); assert.ok(!L.isUnknownCause('히터 단선'));
+  const aoa = [L.RECOMMENDED_HEAD.concat(['사진2']),
+    ['2026-03 2주차', '설비 A', '불량 다수 발생', '원인미확인', '1) 업체 문의 2) 압력 조정', '없음', 'A정비(가상)', '외부', 200000, '실지출', 8, '2026-03 2주차', '완료', '', '', ''],
+    ['2026-04 1주차', '설비 B', '히터 온도가 안 오름', '히터 연결선 단선', '1) 전원 차단 2) 연결선 재결선 3) 자체조치', '없음', '자체 조치', '자체', 0, '', 2, '2026-04 1주차', '완료', '', '', ''],
+    ['2026-04 3주차', '설비 B', '히터 온도가 안 오름', '히터 연결선 단선', '1) 전원 차단 2) 히터 교체 3) 자체조치', '히터 밴드', '자체 조치', '자체', 50000, '실지출', 3, '2026-04 3주차', '완료', '', '', '']];
+  const r = L.applyMapping(aoa, 0, L.autoMap(L.headersOf(aoa, 0)), {});
+  assert.equal(r.rows.length, 3); assert.equal(r.issues.length, 0);
+  const ck = L.dataCheck(r.rows), cf = ck.fields.find(f => f.id === 'cause');
+  assert.equal(cf.filled, 2); assert.equal(cf.unknown, 1, '「원인미확인」 은 미상으로 셈');
+  const g = L.guideDraft(r.rows, L.causeKey('히터 연결선 단선'));
+  assert.deepEqual(g.parts.map(p => p.name), ['히터 밴드'], '「없음」 은 부품이 아님');
+});
+test('현장 기록지 — 칸 · 인쇄 모양이 수강생 양식 그대로(14칸 · 둘씩 놓인 줄 3개)', () => {
+  assert.deepEqual(FF.FIELDS.map(f => f.label), ['작성일자', '작성자', '설비명', '발생 일시', '고장 증상 (상세 기재)', '원인 / 점검 결과', '조치 사항 (1. 2. 3. 순서대로)',
+    '교체 부품 (없으면 없음)', '수리 구분 (자체/외부)', '수리 업체명', '멈춘 시간', '처리 상태 (완료/진행중)', '사진 첨부 (고장 부위, 수리 후)', '비고']);
+  const used = FF.LAYOUT.rows.flatMap(r => r.one ? [r.one] : r.pair || []);
+  assert.deepEqual(used.slice().sort(), FF.FIELDS.map(f => f.id).sort(), '모든 칸이 인쇄에 한 번씩');
+  assert.equal(FF.LAYOUT.rows.filter(r => r.pair).length, 3);
+  assert.equal(FF.title(''), '설비 고장/수리 기록지'); assert.equal(FF.title('생산팀'), '생산팀 설비 고장/수리 기록지');
+});
+test('현장 기록지 — OpenAI 요청 모양(본인 키 · 사진 한 장 · JSON 답) · 키 · 사진 없으면 보내지 않음', () => {
+  const img = 'data:image/jpeg;base64,AAAA';
+  const rq = FF.buildRequest('sk-test-fake', img);
+  assert.equal(rq.url, 'https://api.openai.com/v1/chat/completions');
+  assert.equal(rq.init.headers.Authorization, 'Bearer sk-test-fake');
+  const b = JSON.parse(rq.init.body);
+  assert.equal(b.model, FF.DEFAULT_MODEL); assert.equal(b.temperature, 0); assert.deepEqual(b.response_format, { type: 'json_object' });
+  assert.equal(b.messages[1].content[1].image_url.url, img);
+  FF.FIELDS.forEach(f => assert.ok(b.messages[0].content.includes(f.label), '지시문에 칸 이름: ' + f.label));
+  assert.match(b.messages[0].content, /추측해 채우지 않습니다/);
+  assert.equal(JSON.parse(FF.buildRequest('k', img, 'gpt-4o').init.body).model, 'gpt-4o');
+  assert.throws(() => FF.buildRequest('', img), /키/);
+  assert.throws(() => FF.buildRequest('sk-한글 키', img), /한글/, '머리글에 못 넣는 글자');
+  assert.throws(() => FF.buildRequest('k', 'data:application/pdf;base64,AAAA'), /사진/);
+});
+test('현장 기록지 — AI 답 읽기: 예시 답 · 칸 이름(한국어)으로 온 답 · 코드 울타리 · 이상한 값은 「확인할 것」', () => {
+  const a = FF.parseReply(FF.sampleReply()).fields;
+  assert.equal(a.equipment, '압출기 2호기'); assert.equal(a.occurredAt, '2026-11-03'); assert.equal(a.occurredTime, '14:20');
+  assert.equal(a.repairBy, '자체'); assert.equal(a.status, '완료'); assert.equal(a.vendor, '', 'null 은 빈 칸');
+  assert.deepEqual(L.splitSteps(a.steps), ['온도 표시 확인', '설비 정지 · 전원 차단', '히터 연결 단자 확인 — 3존 단자 풀림', '단자 재체결', '재가동 후 온도 확인', '자체조치']);
+  assert.deepEqual(FF.validate(a), [], '예시 답은 확인할 것 없음');
+  const t = '읽은 결과입니다.\n```json\n' + JSON.stringify({ '설비명': '사출기 1호기', '발생 일시': '2026. 10. 29 14:30', '고장 증상 (상세 기재)': '제품에 기포', '원인 / 점검 결과': null,
+    '조치 사항': '1. 업체 문의 2. 출장 점검', '수리 구분 (자체/외부)': '외부 업체', '처리 상태': '진행중', '멈춘 시간': '반나절', unreadable: '비고', confidence: 'low' }) + '\n```';
+  const r = FF.parseReply(t); assert.equal(r.error, '');
+  const f = r.fields;
+  assert.equal(f.equipment, '사출기 1호기'); assert.equal(f.occurredAt, '2026-10-29'); assert.equal(f.occurredTime, '14:30');
+  assert.equal(f.repairBy, '외부'); assert.equal(f.status, '진행 중'); assert.equal(f.cause, '');
+  const v = FF.validate(f).map(x => x.id);
+  assert.ok(v.includes('downtime'), '「반나절」 은 시간으로 못 읽음'); assert.ok(v.includes('cause'), '원인 빈칸은 짐작 안내');
+  assert.ok(v.includes('memo'), 'AI 가 못 읽은 칸(비고)'); assert.ok(v.includes(''), '확신 낮음');
+  assert.ok(!FF.validate(f).some(x => x.stop), '증상이 있으면 멈추지 않음');
+  assert.ok(FF.validate(FF.blank()).some(x => x.id === 'symptom' && x.stop), '증상 없으면 등록 안 함');
+  assert.match(FF.parseReply('죄송합니다').error, /JSON/);
+  assert.equal(FF.parseReply('{"fields":{"equipment":"설비 C","symptom":"소음"}}').fields.equipment, '설비 C', '{fields:{…}} 로 감싸 와도');
+  assert.equal(FF.parseReply('{"occurredAt":"10/29"}').fields.occurredAt, '10/29', '못 읽은 날짜는 그대로 두고');
+  assert.ok(FF.validate(FF.parseReply('{"occurredAt":"10/29","symptom":"x"}').fields).some(x => x.id === 'occurredAt'), '확인할 것으로');
+});
+test('현장 기록지 → 정비 사례(등록 창에 넘기는 값) — 원인 짐작 · 「자체조치」 · 멈춘 시간 · 작성자는 비고로', () => {
+  const f = FF.parseReply(JSON.stringify({ writtenAt: '2026-11-03', writer: '작업자01', equipment: '압출기 2호기', occurredAt: null, symptom: '히터 온도가 안 올라감',
+    cause: null, steps: ['전원 차단', '히터 연결선 재결선', '자체조치'], parts: '없음', repairBy: null, vendor: null, downtime: '1시간 30분', status: '완료', photo: '단체 대화방', memo: '' })).fields;
+  const c = FF.toCase(f, { photos: [{ id: 'ph1', name: 'a.jpg', w: 10, h: 10, bytes: 1, memo: '현장 기록지' }], source: '현장 기록지(사진)' });
+  assert.equal(c.date, '2026-11-03', '발생 일시가 없으면 작성일자'); assert.equal(c.repairBy, '자체', '마지막 단계 「자체조치」');
+  assert.equal(c.hours, 1.5); assert.equal(c.status, '완료'); assert.ok(c.causeInferred); assert.ok(c.cause && !L.isUnknownCause(c.cause), '증상 · 조치에서 짐작: ' + c.cause);
+  assert.match(c.memo, /작성자 작업자01/); assert.equal(c.media, '단체 대화방'); assert.equal(c.costKind, 'missing');
+  assert.ok(c.tags.includes('온도 안 오름'));
+  const cc = L.cleanCase(c);
+  assert.deepEqual(L.validateCase(cc), {}); assert.equal(cc.photos.length, 1); assert.equal(cc.source, '현장 기록지(사진)'); assert.deepEqual(cc.parts, ['없음']);
+  const e = FF.toCase(Object.assign(FF.blank(), { symptom: '소음', vendor: 'A정비(가상)', cause: '베어링 마모', occurredAt: '2026-10-01' }));
+  assert.equal(e.repairBy, '외부', '업체 이름만 있으면 외부'); assert.ok(!e.causeInferred); assert.equal(e.date, '2026-10-01');
+});
+async function atest(name, fn) {
+  try { await fn(); passed++; console.log('  ok  ' + name); }
+  catch (e) { console.error('  FAIL ' + name + '\n       ' + e.message); process.exitCode = 1; }
+}
+await atest('현장 기록지 — 호출(가짜 fetch): 답을 칸으로 · 401 은 알아볼 수 있는 오류', async () => {
+  let seen = null;
+  const ok = async (url, init) => { seen = { url, init }; return { ok: true, status: 200, text: async () => JSON.stringify({ choices: [{ message: { content: FF.sampleReply() } }] }) }; };
+  const r = await FF.read('sk-fake', 'data:image/png;base64,AAAA', { fetch: ok });
+  assert.equal(r.fields.equipment, '압출기 2호기'); assert.equal(seen.url, FF.API_URL); assert.equal(seen.init.headers.Authorization, 'Bearer sk-fake');
+  const bad = async () => ({ ok: false, status: 401, text: async () => JSON.stringify({ error: { message: 'Incorrect API key provided' } }) });
+  await assert.rejects(FF.read('sk-wrong', 'data:image/png;base64,AAAA', { fetch: bad }), /401.*Incorrect API key/);
+  let called = false;
+  await assert.rejects(FF.read('', 'data:image/png;base64,AAAA', { fetch: async () => { called = true; } }), /키/);
+  assert.equal(called, false, '키가 없으면 부르지 않음');
+});
+test('리포에 API 키가 없음(js · index.html)', () => {
+  const fs = require('node:fs'), path = require('node:path'), root = path.join(path.dirname(require('node:url').fileURLToPath(import.meta.url)), '..');
+  const files = ['index.html'].concat(fs.readdirSync(path.join(root, 'js')).map(f => 'js/' + f));
+  files.forEach(f => assert.ok(!/sk-(proj-)?[A-Za-z0-9_-]{20,}/.test(fs.readFileSync(path.join(root, f), 'utf8')), f));
+});
+
 const { versions } = await import('../scripts/bump-version.mjs');
 test('판 맞추기 — index.html ?v= · logic.js · app.js 가 같은 판 (scripts/bump-version.mjs)', () => {
   const v = versions();
