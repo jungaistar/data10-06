@@ -37,6 +37,17 @@ window.AUTH_CONFIG = {
       "증상 진단",
       "가이드북",
       "비용 현황"
-    ]
+    ],
+    "landing": {
+      "image": "images/landing.jpg",
+      "imageMode": "banner",
+      "imageAlt": "설비고장 원인 진단 도우미 — AI 기반 실시간 장애 원인 분석 및 최적의 진단 솔루션",
+      "colors": {
+        "navy": "#14263f",
+        "navy2": "#0d1a2c",
+        "brand": "#1f7fb8",
+        "brandDark": "#17628f"
+      }
+    }
   }
 };
