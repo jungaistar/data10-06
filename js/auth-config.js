@@ -204,16 +204,17 @@ window.AUTH_CONFIG = {
         "logo": "images/logo.png",
         "logoH": 44
       },
-      "heroMode": "design",
+      "heroMode": "slide",
       "slides": [
         {
-          "image": "images/slide-1.jpg"
+          "image": "images/slide-1.jpg",
+          "tone": "dark",
+          "caption": "부자재생산팀 현장"
         },
         {
-          "image": "images/slide-2.jpg"
-        },
-        {
-          "image": "images/slide-3.jpg"
+          "image": "images/slide-2.jpg",
+          "tone": "light",
+          "caption": "한울H&P"
         }
       ]
     }
