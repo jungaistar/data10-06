@@ -203,7 +203,19 @@ window.AUTH_CONFIG = {
         "en": "HAN WOOL",
         "logo": "images/logo.png",
         "logoH": 44
-      }
+      },
+      "heroMode": "design",
+      "slides": [
+        {
+          "image": "images/slide-1.jpg"
+        },
+        {
+          "image": "images/slide-2.jpg"
+        },
+        {
+          "image": "images/slide-3.jpg"
+        }
+      ]
     }
   }
 };
