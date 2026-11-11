@@ -199,7 +199,9 @@ window.AUTH_CONFIG = {
       },
       "company": {
         "name": "한울H&P",
-        "en": "HAN WOOL"
+        "en": "HAN WOOL",
+        "logo": "images/logo.png",
+        "logoH": 44
       }
     }
   }
