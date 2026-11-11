@@ -471,14 +471,13 @@
   "slides": [
    {
     "image": "images/slide-1.jpg",
-    "tone": "dark",
-    "caption": "부자재생산팀 현장"
-   },
-   {
-    "image": "images/slide-2.jpg",
-    "tone": "light",
-    "caption": "한울H&P"
+    "tone": "dark"
    }
-  ]
+  ],
+  "badge": "부자재생산팀",
+  "badgeColor": "#f47b20",
+  "headline": "설비고장 원인\n진단 도우미",
+  "lead": "AI 기반 실시간 장애 원인 분석 및 최적의 진단 솔루션",
+  "cta": "쉽고 빠른 진단 시작하기"
  }
 }
